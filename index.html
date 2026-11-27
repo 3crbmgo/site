@@ -928,6 +928,104 @@
       color: var(--text-secondary);
     }
 
+    /* ================= DETALHES DA VIATURA (CLIQUE NA LINHA) ================= */
+    .listview-table tbody tr.viatura-row-clickable {
+      cursor: pointer;
+    }
+
+    .listview-table tbody tr.viatura-row-clickable:hover {
+      background-color: #FEF2F2;
+    }
+
+    .viatura-detail-card {
+      display: grid;
+      grid-template-columns: minmax(260px, 360px) 1fr;
+      gap: 24px;
+      background-color: #F8FAFC;
+      border: 1px solid #CBD5E1;
+      border-top: 4px solid var(--primary-red);
+      border-radius: 12px;
+      padding: 22px;
+      box-shadow: var(--shadow-card);
+    }
+
+    .viatura-photo-panel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      background-color: #FFFFFF;
+      border: 1px solid #E2E8F0;
+      border-radius: 10px;
+      padding: 14px;
+    }
+
+    .viatura-photo-box {
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      border-radius: 8px;
+      overflow: hidden;
+      background-color: #E2E8F0;
+      border: 1px solid #CBD5E1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .viatura-photo-box img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .viatura-photo-caption {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      text-align: center;
+      word-break: break-all;
+    }
+
+    .viatura-fields-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 14px;
+      align-content: start;
+    }
+
+    .viatura-field-box {
+      background-color: #FFFFFF;
+      border: 1px solid #E2E8F0;
+      border-radius: 9px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .viatura-field-label {
+      font-size: 10.5px;
+      font-weight: 800;
+      color: var(--primary-red);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .viatura-field-value {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-primary);
+      line-height: 1.35;
+    }
+
+    @media (max-width: 768px) {
+      .viatura-detail-card {
+        grid-template-columns: 1fr;
+        padding: 16px;
+        gap: 16px;
+      }
+    }
+
     /* ================= VIEW: INSPEÇÃO TÉCNICA (EMBED INCORPORADO) ================= */
     .embed-actions-row {
       display: flex;
@@ -1341,7 +1439,8 @@
     const VIATURAS_STATE = {
       abasUnidades: ['3º BBM', '17º BBM', '22º BBM', '18ª CIBM', '4ª CIBM'],
       abaAtiva: '3º BBM',
-      termoBusca: ''
+      termoBusca: '',
+      viaturaSelecionada: null
     };
 
     const RH_STATE = {
@@ -1522,10 +1621,10 @@
         throw new Error('A aba da planilha retornou sem linhas de dados.');
       }
 
-      const headers = rows[0].slice(0, 6).map((h, idx) => h || `Coluna ${String.fromCharCode(65 + idx)}`);
+      const headers = rows[0].slice(0, 8).map((h, idx) => h || `Coluna ${String.fromCharCode(65 + idx)}`);
       const dataRows = rows
         .slice(1)
-        .map((r) => [0, 1, 2, 3, 4, 5].map((i) => r[i] || ''))
+        .map((r) => [0, 1, 2, 3, 4, 5, 6, 7].map((i) => r[i] || ''))
         .filter((row) => row.some((val) => val !== ''));
 
       return { headers, rows: dataRows, rawRows: rows };
@@ -1536,14 +1635,14 @@
         throw new Error(json?.errors?.[0]?.detailed_message || 'Resposta inválida da planilha.');
       }
 
-      const cols = (json.table.cols || []).slice(0, 6).map((c, idx) =>
+      const cols = (json.table.cols || []).slice(0, 8).map((c, idx) =>
         (c && c.label ? c.label.trim() : '') || `Coluna ${String.fromCharCode(65 + idx)}`
       );
 
       const rows = (json.table.rows || [])
         .map((r) => {
           const cells = r.c || [];
-          return [0, 1, 2, 3, 4, 5].map((i) => {
+          return [0, 1, 2, 3, 4, 5, 6, 7].map((i) => {
             const cell = cells[i];
             if (!cell) return '';
             return cell.f !== undefined && cell.f !== null
@@ -1755,7 +1854,7 @@
           const dados = await carregarAbaGoogleSheets(
             FONTES_PLANILHAS.basedados.id,
             FONTES_PLANILHAS.basedados.abas.viaturas,
-            'A:F'
+            'A:H'
           );
           CACHE_DADOS.viaturas = dados;
           atualizarStatusSync('ok', 'Planilha Sincronizada');
@@ -1775,9 +1874,170 @@
       desenharInterfaceViaturas();
     }
 
+    function obterCandidatosFotoViatura(nomeViatura) {
+      const limpo = String(nomeViatura || '').trim();
+      if (!limpo) return [];
+
+      const variacoes = new Set();
+      variacoes.add(limpo);
+      variacoes.add(limpo.replace(/\s*-\s*/g, ' - '));
+      variacoes.add(limpo.replace(/\s*-\s*/g, '-'));
+      variacoes.add(limpo.replace(/\s+/g, ''));
+
+      const extensoes = ['.png', '.PNG', '.jpg', '.JPG', '.jpeg', '.JPEG', '.webp'];
+      const caminhos = [];
+
+      variacoes.forEach((base) => {
+        extensoes.forEach((ext) => {
+          caminhos.push(`imagens/${base}${ext}`);
+        });
+      });
+
+      return caminhos;
+    }
+
+    const FALLBACK_VIATURA_IMG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 300'%3E%3Crect width='400' height='300' fill='%23E2E8F0'/%3E%3Crect x='65' y='125' width='270' height='85' rx='12' fill='%2394A3B8'/%3E%3Crect x='105' y='88' width='135' height='45' rx='8' fill='%2394A3B8'/%3E%3Ccircle cx='125' cy='215' r='26' fill='%23475569'/%3E%3Ccircle cx='275' cy='215' r='26' fill='%23475569'/%3E%3Ctext x='200' y='268' text-anchor='middle' font-family='Arial,sans-serif' font-size='15' font-weight='bold' fill='%23475569'%3EFoto da viatura indisponível%3C/text%3E%3C/svg%3E";
+
+    function renderDetalheViaturaView(row, headers) {
+      const appView = document.getElementById('app-view');
+
+      const nomeViatura = row[0] || 'Viatura';
+      const tipoViatura = row[1] || '-';
+      const obmPertence = row[2] || '-';
+      const marcaVeiculo = row[3] || '-';
+      const placaVeiculo = row[4] || '-';
+      const situacaoVeiculo = row[5] || '-';
+
+      const dataBaixa = row[6] || '-';
+      const motivoBaixa = row[7] || '-';
+
+      const labelA = headers[0] || 'Nome / Prefixo';
+      const labelB = headers[1] || 'Tipo de Viatura';
+      const labelC = headers[2] || 'OBM';
+      const labelD = headers[3] || 'Marca do Veículo';
+      const labelE = headers[4] || 'Placa do Veículo';
+      const labelF = headers[5] || 'Situação';
+      const labelG = headers[6] || 'Data da Baixa';
+      const labelH = headers[7] || 'Motivo da Baixa';
+
+      const statusNorm = normalizarTexto(situacaoVeiculo);
+      const isBaixada = statusNorm === 'BAIXADA';
+
+      let situacaoHTML = `<span class="status-outro">${escapeHTML(situacaoVeiculo)}</span>`;
+      if (statusNorm === 'ATIVA') {
+        situacaoHTML = `<span class="status-ativa">${escapeHTML(situacaoVeiculo)}</span>`;
+      } else if (isBaixada) {
+        situacaoHTML = `<span class="status-baixada">${escapeHTML(situacaoVeiculo)}</span>`;
+      }
+
+      const camposBaixaHTML = isBaixada ? `
+            <div class="viatura-field-box" style="border-color: #FECACA; background-color: #FFF5F5;">
+              <span class="viatura-field-label">${escapeHTML(labelG)}</span>
+              <span class="viatura-field-value">${escapeHTML(dataBaixa)}</span>
+            </div>
+
+            <div class="viatura-field-box" style="border-color: #FECACA; background-color: #FFF5F5;">
+              <span class="viatura-field-label">${escapeHTML(labelH)}</span>
+              <span class="viatura-field-value">${escapeHTML(motivoBaixa)}</span>
+            </div>
+      ` : '';
+
+      const candidatos = obterCandidatosFotoViatura(nomeViatura);
+      const primeiraFoto = candidatos[0] || FALLBACK_VIATURA_IMG;
+
+      appView.innerHTML = `
+        <div class="view-toolbar">
+          <div class="view-title-block">
+            <h2>${escapeHTML(nomeViatura)}</h2>
+            <p>Detalhes da viatura • ${escapeHTML(obmPertence)} • ${escapeHTML(tipoViatura)}</p>
+          </div>
+
+          <div class="embed-actions-row">
+            <button type="button" class="btn-secondary-action" id="btn-voltar-viaturas">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="15 18 9 12 15 6"></polyline>
+              </svg>
+              <span>Voltar para Viaturas</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="viatura-detail-card">
+          <div class="viatura-photo-panel">
+            <div class="viatura-photo-box">
+              <img id="img-detalhe-viatura" src="${escapeHTML(primeiraFoto)}" alt="Foto da viatura ${escapeHTML(nomeViatura)}" />
+            </div>
+            <div class="viatura-photo-caption" id="legenda-foto-viatura">${escapeHTML(primeiraFoto)}</div>
+          </div>
+
+          <div class="viatura-fields-grid">
+            <div class="viatura-field-box">
+              <span class="viatura-field-label">${escapeHTML(labelA)}</span>
+              <span class="viatura-field-value">${escapeHTML(nomeViatura)}</span>
+            </div>
+
+            <div class="viatura-field-box">
+              <span class="viatura-field-label">${escapeHTML(labelB)}</span>
+              <span class="viatura-field-value">${escapeHTML(tipoViatura)}</span>
+            </div>
+
+            <div class="viatura-field-box">
+              <span class="viatura-field-label">${escapeHTML(labelC)}</span>
+              <span class="viatura-field-value">${escapeHTML(obmPertence)}</span>
+            </div>
+
+            <div class="viatura-field-box">
+              <span class="viatura-field-label">${escapeHTML(labelD)}</span>
+              <span class="viatura-field-value">${escapeHTML(marcaVeiculo)}</span>
+            </div>
+
+            <div class="viatura-field-box">
+              <span class="viatura-field-label">${escapeHTML(labelE)}</span>
+              <span class="viatura-field-value">${escapeHTML(placaVeiculo)}</span>
+            </div>
+
+            <div class="viatura-field-box">
+              <span class="viatura-field-label">${escapeHTML(labelF)}</span>
+              <div class="viatura-field-value">${situacaoHTML}</div>
+            </div>
+            ${camposBaixaHTML}
+          </div>
+        </div>
+      `;
+
+      const imgEl = document.getElementById('img-detalhe-viatura');
+      const captionEl = document.getElementById('legenda-foto-viatura');
+      if (imgEl && candidatos.length > 0) {
+        let idx = 0;
+        imgEl.addEventListener('error', () => {
+          idx++;
+          if (idx < candidatos.length) {
+            imgEl.src = candidatos[idx];
+            if (captionEl) captionEl.textContent = candidatos[idx];
+          } else if (imgEl.src !== FALLBACK_VIATURA_IMG) {
+            imgEl.src = FALLBACK_VIATURA_IMG;
+            if (captionEl) captionEl.textContent = `Arquivo não encontrado em imagens/ para "${nomeViatura}"`;
+          }
+        });
+      }
+
+      const btnVoltar = document.getElementById('btn-voltar-viaturas');
+      if (btnVoltar) {
+        btnVoltar.addEventListener('click', () => {
+          VIATURAS_STATE.viaturaSelecionada = null;
+          desenharInterfaceViaturas();
+        });
+      }
+    }
+
     function desenharInterfaceViaturas() {
       const appView = document.getElementById('app-view');
       const { headers, rows } = CACHE_DADOS.viaturas;
+
+      if (VIATURAS_STATE.viaturaSelecionada) {
+        renderDetalheViaturaView(VIATURAS_STATE.viaturaSelecionada, headers);
+        return;
+      }
 
       const contadores = {};
       VIATURAS_STATE.abasUnidades.forEach((unidade) => {
@@ -1818,7 +2078,7 @@
           </tr>
         `;
       } else {
-        tbodyHTML = linhasFiltradas.map((row) => {
+        tbodyHTML = linhasFiltradas.map((row, rowIdx) => {
           const colsHTML = [0, 1, 2, 3, 4, 5].map((colIdx) => {
             const valor = row[colIdx] || '-';
             if (colIdx === 5) {
@@ -1836,7 +2096,7 @@
             return `<td>${escapeHTML(valor)}</td>`;
           }).join('');
 
-          return `<tr>${colsHTML}</tr>`;
+          return `<tr class="viatura-row-clickable" data-viatura-idx="${rowIdx}" title="Clique para ver detalhes e foto da viatura">${colsHTML}</tr>`;
         }).join('');
       }
 
@@ -1880,8 +2140,19 @@
         </div>
       `;
 
+      appView.querySelectorAll('.viatura-row-clickable').forEach((tr) => {
+        tr.addEventListener('click', () => {
+          const idx = Number(tr.getAttribute('data-viatura-idx'));
+          if (linhasFiltradas[idx]) {
+            VIATURAS_STATE.viaturaSelecionada = linhasFiltradas[idx];
+            desenharInterfaceViaturas();
+          }
+        });
+      });
+
       appView.querySelectorAll('.subtab-btn').forEach((btn) => {
         btn.addEventListener('click', () => {
+          VIATURAS_STATE.viaturaSelecionada = null;
           VIATURAS_STATE.abaAtiva = btn.getAttribute('data-unit-tab');
           desenharInterfaceViaturas();
         });
@@ -2335,6 +2606,7 @@
         if (route === 'home') {
           appView.innerHTML = renderHomeView();
         } else if (route === 'viaturas-ativas') {
+          VIATURAS_STATE.viaturaSelecionada = null;
           renderViaturasAtivasView(forcarRecarga);
         } else if (route === 'inspecao-tecnica') {
           renderInspecaoTecnicaView();
@@ -2410,7 +2682,7 @@
           carregarAbaGoogleSheets(
             FONTES_PLANILHAS.basedados.id,
             FONTES_PLANILHAS.basedados.abas.viaturas,
-            'A:F'
+            'A:H'
           )
             .then((dados) => {
               CACHE_DADOS.viaturas = dados;
